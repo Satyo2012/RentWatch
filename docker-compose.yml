@@ -1,0 +1,23 @@
+services:
+  backend:
+    build: ./backend
+    container_name: rentwatch-backend
+    ports:
+      - "8000:8000"
+    volumes:
+      - ./data:/app/data
+    environment:
+      - DATABASE_URL=sqlite:///./data/rentwatch.db
+      - SCRAPE_INTERVAL_HOURS=24
+    restart: unless-stopped
+
+  frontend:
+    build: ./frontend
+    container_name: rentwatch-frontend
+    ports:
+      - "3000:3000"
+    depends_on:
+      - backend
+    environment:
+      - NEXT_PUBLIC_API_URL=http://localhost:8000/api
+    restart: unless-stopped
