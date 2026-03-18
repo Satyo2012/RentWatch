@@ -10,6 +10,8 @@ from sqlalchemy.orm import Session
 from sqlalchemy import func
 from apscheduler.schedulers.background import BackgroundScheduler
 
+from sqlalchemy import inspect, text
+
 from .database import Base, engine, get_db, SessionLocal
 from .models import Monitor, Property, PriceRecord, SiteType, MonitorType
 from .schemas import MonitorCreate, MonitorUpdate, MonitorOut, PropertyOut, PriceRecordOut, DashboardStats, ScrapeResult
@@ -35,10 +37,30 @@ def scheduled_scrape():
         db.close()
 
 
+def _run_migrations():
+    """Add missing columns to existing tables (lightweight migration)."""
+    inspector = inspect(engine)
+
+    # Define expected columns per table: (table, column, sql_type)
+    expected_columns = [
+        ("monitors", "tags", "TEXT"),
+    ]
+
+    with engine.connect() as conn:
+        for table, column, sql_type in expected_columns:
+            if table in inspector.get_table_names():
+                existing = {c["name"] for c in inspector.get_columns(table)}
+                if column not in existing:
+                    logger.info(f"Adding missing column '{column}' to table '{table}'")
+                    conn.execute(text(f"ALTER TABLE {table} ADD COLUMN {column} {sql_type}"))
+        conn.commit()
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     os.makedirs("data", exist_ok=True)
     Base.metadata.create_all(bind=engine)
+    _run_migrations()
 
     interval_hours = int(os.getenv("SCRAPE_INTERVAL_HOURS", "24"))
     scheduler.add_job(scheduled_scrape, "interval", hours=interval_hours, id="scrape_job")
