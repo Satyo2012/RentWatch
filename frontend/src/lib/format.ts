@@ -12,22 +12,24 @@ export function formatPriceChange(change: number): string {
 }
 
 export function formatDate(iso: string): string {
-  const d = new Date(iso);
+  const d = new Date(iso.endsWith("Z") ? iso : iso + "Z");
   return d.toLocaleDateString("ja-JP", {
     year: "numeric",
     month: "short",
     day: "numeric",
+    timeZone: "Asia/Tokyo",
   });
 }
 
 export function formatDateTime(iso: string): string {
-  const d = new Date(iso);
+  const d = new Date(iso.endsWith("Z") ? iso : iso + "Z");
   return d.toLocaleDateString("ja-JP", {
     year: "numeric",
     month: "short",
     day: "numeric",
     hour: "2-digit",
     minute: "2-digit",
+    timeZone: "Asia/Tokyo",
   });
 }
 

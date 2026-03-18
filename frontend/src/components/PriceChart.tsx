@@ -21,7 +21,7 @@ export default function PriceChart({ records, height = 250 }: PriceChartProps) {
   const data = records.map((r) => ({
     date: formatDate(r.recorded_at),
     price: r.price,
-    timestamp: new Date(r.recorded_at).getTime(),
+    timestamp: new Date(r.recorded_at.endsWith("Z") ? r.recorded_at : r.recorded_at + "Z").getTime(),
   }));
 
   data.sort((a, b) => a.timestamp - b.timestamp);
