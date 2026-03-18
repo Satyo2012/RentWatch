@@ -38,6 +38,8 @@ class PropertyOut(BaseModel):
     age: str | None
     access: str | None
     detail_url: str | None
+    is_listed: bool
+    last_seen: datetime
     first_seen: datetime
     price_records: list[PriceRecordOut]
     current_price: int | None = None
@@ -53,6 +55,7 @@ class MonitorOut(BaseModel):
     site: str
     monitor_type: str
     url: str
+    tags: list[str]
     is_active: bool
     created_at: datetime
     updated_at: datetime
@@ -66,6 +69,8 @@ class DashboardStats(BaseModel):
     total_monitors: int
     active_monitors: int
     total_properties: int
+    total_listed: int
+    delisted: int
     price_drops: int
     price_increases: int
     last_scan: datetime | None
@@ -76,3 +81,4 @@ class ScrapeResult(BaseModel):
     properties_found: int
     new_properties: int
     price_changes: int
+    delisted: int

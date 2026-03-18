@@ -174,7 +174,19 @@ export default function MonitorsPage() {
                       <span className="badge-warning">一時停止中</span>
                     )}
                   </div>
-                  <p className="mt-1 truncate text-sm text-white/30">{m.url}</p>
+                  {/* Condition Tags */}
+                  {m.tags && m.tags.length > 0 && (
+                    <div className="mt-2 flex flex-wrap gap-1.5">
+                      {m.tags.map((tag, i) => (
+                        <span
+                          key={i}
+                          className="inline-flex items-center rounded-lg bg-brand-600/10 px-2.5 py-0.5 text-xs font-medium text-brand-300 border border-brand-500/20"
+                        >
+                          {tag}
+                        </span>
+                      ))}
+                    </div>
+                  )}
                   <div className="mt-2 flex items-center gap-4 text-xs text-white/20">
                     <span>{m.property_count} 物件</span>
                     <span>作成: {formatDateTime(m.created_at)}</span>

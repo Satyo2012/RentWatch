@@ -29,16 +29,40 @@ def scrape_monitor(db: Session, monitor: Monitor) -> dict:
 
     new_count = 0
     change_count = 0
+    now = datetime.now(timezone.utc)
+
+    # Collect detail_urls/names of currently found properties to detect delisting
+    found_keys = set()
 
     for sp in scraped:
+        key = sp.detail_url or f"{sp.name}||{sp.address}"
+        found_keys.add(key)
+
         prop = _find_existing_property(db, monitor.id, sp)
         if prop:
+            # Re-list if previously delisted
+            if not prop.is_listed:
+                prop.is_listed = 1
+            prop.last_seen = now
             changed = _update_price(db, prop, sp)
             if changed:
                 change_count += 1
         else:
             prop = _create_property(db, monitor.id, sp)
             new_count += 1
+
+    # Detect delisted properties (only for search-type monitors)
+    delisted_count = 0
+    if monitor.monitor_type == MonitorType.SEARCH and scraped:
+        existing_props = db.query(Property).filter(
+            Property.monitor_id == monitor.id,
+            Property.is_listed == 1,
+        ).all()
+        for prop in existing_props:
+            key = prop.detail_url or f"{prop.name}||{prop.address}"
+            if key not in found_keys:
+                prop.is_listed = 0
+                delisted_count += 1
 
     db.commit()
 
@@ -47,6 +71,7 @@ def scrape_monitor(db: Session, monitor: Monitor) -> dict:
         "properties_found": len(scraped),
         "new_properties": new_count,
         "price_changes": change_count,
+        "delisted": delisted_count,
     }
 
 
@@ -131,6 +156,7 @@ def scrape_all_active(db: Session) -> list[dict]:
                 "properties_found": 0,
                 "new_properties": 0,
                 "price_changes": 0,
+                "delisted": 0,
                 "error": str(e),
             })
     return results

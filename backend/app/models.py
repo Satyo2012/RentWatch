@@ -24,6 +24,7 @@ class Monitor(Base):
     site = Column(SAEnum(SiteType), nullable=False)
     monitor_type = Column(SAEnum(MonitorType), nullable=False)
     url = Column(Text, nullable=False)
+    tags = Column(Text, nullable=True)  # JSON array of condition tags
     is_active = Column(Integer, default=1)
     created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
     updated_at = Column(DateTime, default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc))
@@ -45,6 +46,8 @@ class Property(Base):
     age = Column(String, nullable=True)
     access = Column(String, nullable=True)
     detail_url = Column(Text, nullable=True)
+    is_listed = Column(Integer, default=1)  # 1=掲載中, 0=掲載終了
+    last_seen = Column(DateTime, default=lambda: datetime.now(timezone.utc))
     first_seen = Column(DateTime, default=lambda: datetime.now(timezone.utc))
 
     monitor = relationship("Monitor", back_populates="properties")

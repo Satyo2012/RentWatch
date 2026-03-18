@@ -20,6 +20,7 @@ export interface Monitor {
   site: "suumo" | "homes";
   monitor_type: "url" | "search";
   url: string;
+  tags: string[];
   is_active: boolean;
   created_at: string;
   updated_at: string;
@@ -47,6 +48,8 @@ export interface Property {
   age: string | null;
   access: string | null;
   detail_url: string | null;
+  is_listed: boolean;
+  last_seen: string;
   first_seen: string;
   price_records: PriceRecord[];
   current_price: number | null;
@@ -57,6 +60,8 @@ export interface DashboardStats {
   total_monitors: number;
   active_monitors: number;
   total_properties: number;
+  total_listed: number;
+  delisted: number;
   price_drops: number;
   price_increases: number;
   last_scan: string | null;
@@ -78,6 +83,15 @@ export interface ScrapeResult {
   properties_found: number;
   new_properties: number;
   price_changes: number;
+  delisted: number;
+}
+
+export interface PropertyFilters {
+  sort?: string;
+  layout?: string;
+  price_min?: number;
+  price_max?: number;
+  status?: string;
 }
 
 export const api = {
@@ -92,8 +106,16 @@ export const api = {
   scrapeMonitor: (id: number) =>
     fetchAPI<ScrapeResult>(`/monitors/${id}/scrape`, { method: "POST" }),
   scrapeAll: () => fetchAPI<{ results: ScrapeResult[] }>("/scrape-all", { method: "POST" }),
-  getProperties: (monitorId: number) =>
-    fetchAPI<Property[]>(`/monitors/${monitorId}/properties`),
+  getProperties: (monitorId: number, filters?: PropertyFilters) => {
+    const params = new URLSearchParams();
+    if (filters?.sort) params.set("sort", filters.sort);
+    if (filters?.layout) params.set("layout", filters.layout);
+    if (filters?.price_min) params.set("price_min", String(filters.price_min));
+    if (filters?.price_max) params.set("price_max", String(filters.price_max));
+    if (filters?.status) params.set("status", filters.status);
+    const qs = params.toString();
+    return fetchAPI<Property[]>(`/monitors/${monitorId}/properties${qs ? `?${qs}` : ""}`);
+  },
   getPriceHistory: (propertyId: number) =>
     fetchAPI<PriceRecord[]>(`/properties/${propertyId}/history`),
   getPriceChanges: (limit?: number) =>

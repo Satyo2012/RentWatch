@@ -1,9 +1,10 @@
+import json
 import os
 import logging
 from contextlib import asynccontextmanager
 from datetime import datetime, timezone
 
-from fastapi import FastAPI, Depends, HTTPException
+from fastapi import FastAPI, Depends, HTTPException, BackgroundTasks
 from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy.orm import Session
 from sqlalchemy import func
@@ -13,6 +14,7 @@ from .database import Base, engine, get_db, SessionLocal
 from .models import Monitor, Property, PriceRecord, SiteType, MonitorType
 from .schemas import MonitorCreate, MonitorUpdate, MonitorOut, PropertyOut, PriceRecordOut, DashboardStats, ScrapeResult
 from .service import scrape_monitor, scrape_all_active
+from .url_parser import extract_tags
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -59,6 +61,41 @@ app.add_middleware(
 )
 
 
+def _monitor_tags(monitor: Monitor) -> list[str]:
+    """Get tags from DB or empty list."""
+    if monitor.tags:
+        try:
+            return json.loads(monitor.tags)
+        except (json.JSONDecodeError, TypeError):
+            return []
+    return []
+
+
+def _monitor_to_out(monitor: Monitor, db: Session) -> MonitorOut:
+    prop_count = db.query(func.count(Property.id)).filter(Property.monitor_id == monitor.id).scalar()
+    return MonitorOut(
+        id=monitor.id, name=monitor.name, site=monitor.site.value,
+        monitor_type=monitor.monitor_type.value, url=monitor.url,
+        tags=_monitor_tags(monitor),
+        is_active=bool(monitor.is_active), created_at=monitor.created_at,
+        updated_at=monitor.updated_at, property_count=prop_count,
+    )
+
+
+def _run_initial_scrape(monitor_id: int):
+    """Run scrape in background after monitor creation."""
+    db = SessionLocal()
+    try:
+        monitor = db.query(Monitor).filter(Monitor.id == monitor_id).first()
+        if monitor:
+            result = scrape_monitor(db, monitor)
+            logger.info(f"Initial scrape for '{monitor.name}': {result}")
+    except Exception as e:
+        logger.error(f"Initial scrape failed for monitor {monitor_id}: {e}")
+    finally:
+        db.close()
+
+
 # ── Dashboard ──────────────────────────────────────────────
 
 @app.get("/api/dashboard", response_model=DashboardStats)
@@ -66,12 +103,12 @@ def get_dashboard(db: Session = Depends(get_db)):
     total_monitors = db.query(func.count(Monitor.id)).scalar()
     active_monitors = db.query(func.count(Monitor.id)).filter(Monitor.is_active == 1).scalar()
     total_properties = db.query(func.count(Property.id)).scalar()
+    total_listed = db.query(func.count(Property.id)).filter(Property.is_listed == 1).scalar()
+    delisted = total_properties - total_listed
 
     last_record = db.query(PriceRecord).order_by(PriceRecord.recorded_at.desc()).first()
     last_scan = last_record.recorded_at if last_record else None
 
-    # Count properties with price changes
-    from sqlalchemy import text
     price_drops = 0
     price_increases = 0
 
@@ -91,6 +128,8 @@ def get_dashboard(db: Session = Depends(get_db)):
         total_monitors=total_monitors,
         active_monitors=active_monitors,
         total_properties=total_properties,
+        total_listed=total_listed,
+        delisted=delisted,
         price_drops=price_drops,
         price_increases=price_increases,
         last_scan=last_scan,
@@ -102,34 +141,29 @@ def get_dashboard(db: Session = Depends(get_db)):
 @app.get("/api/monitors", response_model=list[MonitorOut])
 def list_monitors(db: Session = Depends(get_db)):
     monitors = db.query(Monitor).order_by(Monitor.created_at.desc()).all()
-    results = []
-    for m in monitors:
-        prop_count = db.query(func.count(Property.id)).filter(Property.monitor_id == m.id).scalar()
-        results.append(MonitorOut(
-            id=m.id, name=m.name, site=m.site.value, monitor_type=m.monitor_type.value,
-            url=m.url, is_active=bool(m.is_active), created_at=m.created_at,
-            updated_at=m.updated_at, property_count=prop_count,
-        ))
-    return results
+    return [_monitor_to_out(m, db) for m in monitors]
 
 
 @app.post("/api/monitors", response_model=MonitorOut)
-def create_monitor(data: MonitorCreate, db: Session = Depends(get_db)):
+def create_monitor(data: MonitorCreate, background_tasks: BackgroundTasks, db: Session = Depends(get_db)):
+    # Auto-extract tags from URL
+    tags = extract_tags(data.url, data.site)
+
     monitor = Monitor(
         name=data.name,
         site=SiteType(data.site),
         monitor_type=MonitorType(data.monitor_type),
         url=data.url,
+        tags=json.dumps(tags, ensure_ascii=False) if tags else None,
     )
     db.add(monitor)
     db.commit()
     db.refresh(monitor)
-    return MonitorOut(
-        id=monitor.id, name=monitor.name, site=monitor.site.value,
-        monitor_type=monitor.monitor_type.value, url=monitor.url,
-        is_active=bool(monitor.is_active), created_at=monitor.created_at,
-        updated_at=monitor.updated_at, property_count=0,
-    )
+
+    # Auto-scrape on creation
+    background_tasks.add_task(_run_initial_scrape, monitor.id)
+
+    return _monitor_to_out(monitor, db)
 
 
 @app.patch("/api/monitors/{monitor_id}", response_model=MonitorOut)
@@ -143,13 +177,7 @@ def update_monitor(monitor_id: int, data: MonitorUpdate, db: Session = Depends(g
         monitor.is_active = 1 if data.is_active else 0
     db.commit()
     db.refresh(monitor)
-    prop_count = db.query(func.count(Property.id)).filter(Property.monitor_id == monitor.id).scalar()
-    return MonitorOut(
-        id=monitor.id, name=monitor.name, site=monitor.site.value,
-        monitor_type=monitor.monitor_type.value, url=monitor.url,
-        is_active=bool(monitor.is_active), created_at=monitor.created_at,
-        updated_at=monitor.updated_at, property_count=prop_count,
-    )
+    return _monitor_to_out(monitor, db)
 
 
 @app.delete("/api/monitors/{monitor_id}")
@@ -182,9 +210,28 @@ def trigger_scrape_all(db: Session = Depends(get_db)):
 # ── Properties ──────────────────────────────────────────────
 
 @app.get("/api/monitors/{monitor_id}/properties", response_model=list[PropertyOut])
-def list_properties(monitor_id: int, db: Session = Depends(get_db)):
-    props = db.query(Property).filter(Property.monitor_id == monitor_id).all()
+def list_properties(
+    monitor_id: int,
+    sort: str = "price_asc",
+    layout: str | None = None,
+    price_min: int | None = None,
+    price_max: int | None = None,
+    status: str | None = None,  # "listed", "delisted", or None for all
+    db: Session = Depends(get_db),
+):
+    query = db.query(Property).filter(Property.monitor_id == monitor_id)
+
+    if status == "listed":
+        query = query.filter(Property.is_listed == 1)
+    elif status == "delisted":
+        query = query.filter(Property.is_listed == 0)
+
+    if layout:
+        query = query.filter(Property.layout.contains(layout))
+
+    props = query.all()
     results = []
+
     for p in props:
         records = db.query(PriceRecord).filter(
             PriceRecord.property_id == p.id
@@ -195,14 +242,34 @@ def list_properties(monitor_id: int, db: Session = Depends(get_db)):
         if len(records) >= 2:
             price_change = records[0].price - records[1].price
 
+        # Apply price filter
+        if price_min and current_price and current_price < price_min:
+            continue
+        if price_max and current_price and current_price > price_max:
+            continue
+
         results.append(PropertyOut(
             id=p.id, monitor_id=p.monitor_id, external_id=p.external_id,
             name=p.name, address=p.address, layout=p.layout, area=p.area,
             floor=p.floor, age=p.age, access=p.access, detail_url=p.detail_url,
+            is_listed=bool(p.is_listed), last_seen=p.last_seen,
             first_seen=p.first_seen,
             price_records=[PriceRecordOut.model_validate(r) for r in records],
             current_price=current_price, price_change=price_change,
         ))
+
+    # Sort
+    if sort == "price_asc":
+        results.sort(key=lambda x: x.current_price or 0)
+    elif sort == "price_desc":
+        results.sort(key=lambda x: x.current_price or 0, reverse=True)
+    elif sort == "change_asc":
+        results.sort(key=lambda x: x.price_change or 0)
+    elif sort == "change_desc":
+        results.sort(key=lambda x: x.price_change or 0, reverse=True)
+    elif sort == "newest":
+        results.sort(key=lambda x: x.first_seen, reverse=True)
+
     return results
 
 

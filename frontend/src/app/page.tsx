@@ -13,6 +13,7 @@ import {
   ArrowDownRight,
   ArrowUpRight,
   ExternalLink,
+  EyeOff,
 } from "lucide-react";
 import { api, DashboardStats, PriceChange } from "@/lib/api";
 import { formatPrice, formatPriceChange, formatDateTime } from "@/lib/format";
@@ -83,7 +84,7 @@ export default function DashboardPage() {
         ) : (
           <>
             {/* Stats Grid */}
-            <div className="mb-8 grid grid-cols-1 gap-5 sm:grid-cols-2 lg:grid-cols-4">
+            <div className="mb-8 grid grid-cols-1 gap-5 sm:grid-cols-2 lg:grid-cols-5">
               <StatsCard
                 label="アクティブモニター"
                 value={stats?.active_monitors ?? 0}
@@ -91,8 +92,8 @@ export default function DashboardPage() {
                 glowColor="blue"
               />
               <StatsCard
-                label="監視物件数"
-                value={stats?.total_properties ?? 0}
+                label="掲載中物件"
+                value={stats?.total_listed ?? 0}
                 icon={<Building2 className="h-4 w-4 text-brand-400" />}
                 glowColor="blue"
               />
@@ -110,6 +111,13 @@ export default function DashboardPage() {
                 icon={<TrendingUp className="h-4 w-4 text-red-400" />}
                 glowColor="red"
                 trend="up"
+              />
+              <StatsCard
+                label="掲載終了"
+                value={stats?.delisted ?? 0}
+                icon={<EyeOff className="h-4 w-4 text-yellow-400" />}
+                glowColor="blue"
+                subtitle={stats?.delisted ? "要確認" : undefined}
               />
             </div>
 
