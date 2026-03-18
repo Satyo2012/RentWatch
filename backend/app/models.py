@@ -47,6 +47,7 @@ class Property(Base):
     access = Column(String, nullable=True)
     detail_url = Column(Text, nullable=True)
     is_listed = Column(Integer, default=1)  # 1=掲載中, 0=掲載終了
+    user_status = Column(String, nullable=True)  # null=通常, "favorite", "not_interested"
     last_seen = Column(DateTime, default=lambda: datetime.now(timezone.utc))
     first_seen = Column(DateTime, default=lambda: datetime.now(timezone.utc))
 

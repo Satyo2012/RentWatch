@@ -14,7 +14,7 @@ from sqlalchemy import inspect, text
 
 from .database import Base, engine, get_db, SessionLocal
 from .models import Monitor, Property, PriceRecord, SiteType, MonitorType
-from .schemas import MonitorCreate, MonitorUpdate, MonitorOut, PropertyOut, PriceRecordOut, DashboardStats, ScrapeResult
+from .schemas import MonitorCreate, MonitorUpdate, MonitorOut, PropertyOut, PriceRecordOut, DashboardStats, ScrapeResult, PropertyStatusUpdate
 from .service import scrape_monitor, scrape_all_active
 from .url_parser import extract_tags
 
@@ -57,6 +57,7 @@ def _run_migrations():
         ("properties", "layout", "VARCHAR", None),
         ("properties", "address", "VARCHAR", None),
         ("properties", "detail_url", "TEXT", None),
+        ("properties", "user_status", "VARCHAR", None),
         ("price_records", "management_fee", "INTEGER", None),
         ("price_records", "deposit", "VARCHAR", None),
         ("price_records", "key_money", "VARCHAR", None),
@@ -260,6 +261,7 @@ def list_properties(
     price_min: int | None = None,
     price_max: int | None = None,
     status: str | None = None,  # "listed", "delisted", or None for all
+    user_status: str | None = None,  # "favorite", "not_interested", or None for all
     db: Session = Depends(get_db),
 ):
     query = db.query(Property).filter(Property.monitor_id == monitor_id)
@@ -268,6 +270,13 @@ def list_properties(
         query = query.filter(Property.is_listed == 1)
     elif status == "delisted":
         query = query.filter(Property.is_listed == 0)
+
+    if user_status == "favorite":
+        query = query.filter(Property.user_status == "favorite")
+    elif user_status == "not_interested":
+        query = query.filter(Property.user_status == "not_interested")
+    elif user_status == "unmarked":
+        query = query.filter(Property.user_status.is_(None))
 
     if layout:
         query = query.filter(Property.layout.contains(layout))
@@ -295,8 +304,8 @@ def list_properties(
             id=p.id, monitor_id=p.monitor_id, external_id=p.external_id,
             name=p.name, address=p.address, layout=p.layout, area=p.area,
             floor=p.floor, age=p.age, access=p.access, detail_url=p.detail_url,
-            is_listed=bool(p.is_listed), last_seen=p.last_seen,
-            first_seen=p.first_seen,
+            is_listed=bool(p.is_listed), user_status=p.user_status,
+            last_seen=p.last_seen, first_seen=p.first_seen,
             price_records=[PriceRecordOut.model_validate(r) for r in records],
             current_price=current_price, price_change=price_change,
         ))
@@ -322,6 +331,18 @@ def get_price_history(property_id: int, db: Session = Depends(get_db)):
         PriceRecord.property_id == property_id
     ).order_by(PriceRecord.recorded_at.asc()).all()
     return [PriceRecordOut.model_validate(r) for r in records]
+
+
+@app.patch("/api/properties/{property_id}/status")
+def update_property_status(property_id: int, data: PropertyStatusUpdate, db: Session = Depends(get_db)):
+    prop = db.query(Property).filter(Property.id == property_id).first()
+    if not prop:
+        raise HTTPException(status_code=404, detail="Property not found")
+    if data.user_status is not None and data.user_status not in ("favorite", "not_interested"):
+        raise HTTPException(status_code=400, detail="Invalid status. Use 'favorite', 'not_interested', or null")
+    prop.user_status = data.user_status
+    db.commit()
+    return {"ok": True, "user_status": prop.user_status}
 
 
 # ── Price Changes Feed ──────────────────────────────────────

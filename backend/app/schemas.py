@@ -39,6 +39,7 @@ class PropertyOut(BaseModel):
     access: str | None
     detail_url: str | None
     is_listed: bool
+    user_status: str | None = None
     last_seen: datetime
     first_seen: datetime
     price_records: list[PriceRecordOut]
@@ -82,3 +83,7 @@ class ScrapeResult(BaseModel):
     new_properties: int
     price_changes: int
     delisted: int
+
+
+class PropertyStatusUpdate(BaseModel):
+    user_status: str | None = None  # "favorite", "not_interested", or null to clear

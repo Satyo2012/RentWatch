@@ -49,6 +49,7 @@ export interface Property {
   access: string | null;
   detail_url: string | null;
   is_listed: boolean;
+  user_status: "favorite" | "not_interested" | null;
   last_seen: string;
   first_seen: string;
   price_records: PriceRecord[];
@@ -92,6 +93,7 @@ export interface PropertyFilters {
   price_min?: number;
   price_max?: number;
   status?: string;
+  user_status?: string;
 }
 
 export const api = {
@@ -113,6 +115,7 @@ export const api = {
     if (filters?.price_min) params.set("price_min", String(filters.price_min));
     if (filters?.price_max) params.set("price_max", String(filters.price_max));
     if (filters?.status) params.set("status", filters.status);
+    if (filters?.user_status) params.set("user_status", filters.user_status);
     const qs = params.toString();
     return fetchAPI<Property[]>(`/monitors/${monitorId}/properties${qs ? `?${qs}` : ""}`);
   },
@@ -120,4 +123,9 @@ export const api = {
     fetchAPI<PriceRecord[]>(`/properties/${propertyId}/history`),
   getPriceChanges: (limit?: number) =>
     fetchAPI<PriceChange[]>(`/price-changes?limit=${limit || 50}`),
+  updatePropertyStatus: (propertyId: number, userStatus: string | null) =>
+    fetchAPI<{ ok: boolean; user_status: string | null }>(
+      `/properties/${propertyId}/status`,
+      { method: "PATCH", body: JSON.stringify({ user_status: userStatus }) }
+    ),
 };

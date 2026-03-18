@@ -15,6 +15,8 @@ import {
   EyeOff,
   SlidersHorizontal,
   ArrowUpDown,
+  Star,
+  ThumbsDown,
 } from "lucide-react";
 import { api, Property, Monitor, PropertyFilters } from "@/lib/api";
 import {
@@ -39,6 +41,13 @@ const STATUS_OPTIONS = [
   { value: "delisted", label: "掲載終了" },
 ];
 
+const USER_STATUS_OPTIONS = [
+  { value: "", label: "すべて" },
+  { value: "favorite", label: "お気に入り" },
+  { value: "not_interested", label: "興味なし" },
+  { value: "unmarked", label: "未分類" },
+];
+
 export default function MonitorDetailPage() {
   const params = useParams();
   const monitorId = Number(params.id);
@@ -55,6 +64,7 @@ export default function MonitorDetailPage() {
   const [layoutFilter, setLayoutFilter] = useState("");
   const [priceMin, setPriceMin] = useState("");
   const [priceMax, setPriceMax] = useState("");
+  const [userStatusFilter, setUserStatusFilter] = useState("");
 
   const fetchData = useCallback(async () => {
     try {
@@ -63,6 +73,7 @@ export default function MonitorDetailPage() {
       if (layoutFilter) filters.layout = layoutFilter;
       if (priceMin) filters.price_min = parseInt(priceMin) * 10000;
       if (priceMax) filters.price_max = parseInt(priceMax) * 10000;
+      if (userStatusFilter) filters.user_status = userStatusFilter;
 
       const [monitors, props] = await Promise.all([
         api.getMonitors(),
@@ -79,7 +90,7 @@ export default function MonitorDetailPage() {
     } finally {
       setLoading(false);
     }
-  }, [monitorId, sort, statusFilter, layoutFilter, priceMin, priceMax]);
+  }, [monitorId, sort, statusFilter, layoutFilter, priceMin, priceMax, userStatusFilter]);
 
   useEffect(() => {
     fetchData();
@@ -94,6 +105,24 @@ export default function MonitorDetailPage() {
       console.error("Scrape failed:", e);
     } finally {
       setScraping(false);
+    }
+  };
+
+  const handleUserStatus = async (propertyId: number, newStatus: string | null) => {
+    try {
+      await api.updatePropertyStatus(propertyId, newStatus);
+      setProperties((prev) =>
+        prev.map((p) =>
+          p.id === propertyId ? { ...p, user_status: newStatus as Property["user_status"] } : p
+        )
+      );
+      if (selectedProperty?.id === propertyId) {
+        setSelectedProperty((prev) =>
+          prev ? { ...prev, user_status: newStatus as Property["user_status"] } : prev
+        );
+      }
+    } catch (e) {
+      console.error("Failed to update status:", e);
     }
   };
 
@@ -217,7 +246,7 @@ export default function MonitorDetailPage() {
 
               {/* Expanded Filters */}
               {showFilters && (
-                <div className="mt-4 grid grid-cols-4 gap-3 border-t border-white/5 pt-4">
+                <div className="mt-4 grid grid-cols-5 gap-3 border-t border-white/5 pt-4">
                   <div>
                     <label className="mb-1 block text-xs text-white/40">ステータス</label>
                     <select
@@ -226,6 +255,20 @@ export default function MonitorDetailPage() {
                       className="input-field !py-1.5 !text-xs"
                     >
                       {STATUS_OPTIONS.map((o) => (
+                        <option key={o.value} value={o.value}>
+                          {o.label}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                  <div>
+                    <label className="mb-1 block text-xs text-white/40">マーク</label>
+                    <select
+                      value={userStatusFilter}
+                      onChange={(e) => setUserStatusFilter(e.target.value)}
+                      className="input-field !py-1.5 !text-xs"
+                    >
+                      {USER_STATUS_OPTIONS.map((o) => (
                         <option key={o.value} value={o.value}>
                           {o.label}
                         </option>
@@ -289,7 +332,13 @@ export default function MonitorDetailPage() {
                           <div className="flex items-center gap-4">
                             <div className="min-w-0 flex-1">
                               <div className="flex items-center gap-2">
-                                <p className={`truncate text-sm font-medium ${!p.is_listed ? "text-white/40 line-through" : ""}`}>
+                                {p.user_status === "favorite" && (
+                                  <Star className="h-3.5 w-3.5 shrink-0 fill-yellow-400 text-yellow-400" />
+                                )}
+                                {p.user_status === "not_interested" && (
+                                  <ThumbsDown className="h-3.5 w-3.5 shrink-0 text-white/20" />
+                                )}
+                                <p className={`truncate text-sm font-medium ${!p.is_listed ? "text-white/40 line-through" : ""} ${p.user_status === "not_interested" ? "!text-white/20" : ""}`}>
                                   {p.name}
                                 </p>
                                 {!p.is_listed && (
@@ -325,7 +374,7 @@ export default function MonitorDetailPage() {
                               </div>
                             </div>
                             <div className="text-right">
-                              <p className={`text-lg font-bold ${p.is_listed ? "text-brand-400" : "text-white/30"}`}>
+                              <p className={`text-lg font-bold ${p.user_status === "not_interested" ? "text-white/20" : p.is_listed ? "text-brand-400" : "text-white/30"}`}>
                                 {p.current_price
                                   ? formatPrice(p.current_price)
                                   : "-"}
@@ -360,16 +409,52 @@ export default function MonitorDetailPage() {
               <div className="xl:col-span-1">
                 {selectedProperty ? (
                   <div className="glass-card sticky top-8 p-6">
-                    <div className="mb-4 flex items-center justify-between">
-                      <h3 className="text-lg font-semibold">
-                        {selectedProperty.name}
-                      </h3>
-                      {!selectedProperty.is_listed && (
-                        <span className="badge-warning">
-                          <EyeOff className="mr-1 h-3 w-3" />
-                          掲載終了
-                        </span>
-                      )}
+                    <div className="mb-4">
+                      <div className="flex items-center justify-between">
+                        <h3 className="text-lg font-semibold truncate mr-2">
+                          {selectedProperty.name}
+                        </h3>
+                        {!selectedProperty.is_listed && (
+                          <span className="badge-warning shrink-0">
+                            <EyeOff className="mr-1 h-3 w-3" />
+                            掲載終了
+                          </span>
+                        )}
+                      </div>
+                      <div className="mt-2 flex items-center gap-2">
+                        <button
+                          onClick={() =>
+                            handleUserStatus(
+                              selectedProperty.id,
+                              selectedProperty.user_status === "favorite" ? null : "favorite"
+                            )
+                          }
+                          className={`inline-flex items-center gap-1 rounded-lg px-3 py-1.5 text-xs font-medium transition-colors ${
+                            selectedProperty.user_status === "favorite"
+                              ? "bg-yellow-400/15 text-yellow-400 border border-yellow-400/30"
+                              : "bg-white/5 text-white/40 border border-white/10 hover:bg-yellow-400/10 hover:text-yellow-400"
+                          }`}
+                        >
+                          <Star className={`h-3.5 w-3.5 ${selectedProperty.user_status === "favorite" ? "fill-yellow-400" : ""}`} />
+                          お気に入り
+                        </button>
+                        <button
+                          onClick={() =>
+                            handleUserStatus(
+                              selectedProperty.id,
+                              selectedProperty.user_status === "not_interested" ? null : "not_interested"
+                            )
+                          }
+                          className={`inline-flex items-center gap-1 rounded-lg px-3 py-1.5 text-xs font-medium transition-colors ${
+                            selectedProperty.user_status === "not_interested"
+                              ? "bg-white/10 text-white/50 border border-white/20"
+                              : "bg-white/5 text-white/40 border border-white/10 hover:bg-white/10 hover:text-white/50"
+                          }`}
+                        >
+                          <ThumbsDown className="h-3.5 w-3.5" />
+                          興味なし
+                        </button>
+                      </div>
                     </div>
 
                     <div className="mb-6 space-y-3">
