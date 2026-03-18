@@ -41,18 +41,39 @@ def _run_migrations():
     """Add missing columns to existing tables (lightweight migration)."""
     inspector = inspect(engine)
 
-    # Define expected columns per table: (table, column, sql_type)
+    # Define expected columns per table: (table, column, sql_type, default)
     expected_columns = [
-        ("monitors", "tags", "TEXT"),
+        ("monitors", "tags", "TEXT", None),
+        ("monitors", "is_active", "INTEGER", "1"),
+        ("monitors", "updated_at", "DATETIME", None),
+        ("properties", "external_id", "VARCHAR", None),
+        ("properties", "is_listed", "INTEGER", "1"),
+        ("properties", "last_seen", "DATETIME", None),
+        ("properties", "first_seen", "DATETIME", None),
+        ("properties", "access", "VARCHAR", None),
+        ("properties", "age", "VARCHAR", None),
+        ("properties", "floor", "VARCHAR", None),
+        ("properties", "area", "VARCHAR", None),
+        ("properties", "layout", "VARCHAR", None),
+        ("properties", "address", "VARCHAR", None),
+        ("properties", "detail_url", "TEXT", None),
+        ("price_records", "management_fee", "INTEGER", None),
+        ("price_records", "deposit", "VARCHAR", None),
+        ("price_records", "key_money", "VARCHAR", None),
     ]
 
     with engine.connect() as conn:
-        for table, column, sql_type in expected_columns:
-            if table in inspector.get_table_names():
-                existing = {c["name"] for c in inspector.get_columns(table)}
-                if column not in existing:
-                    logger.info(f"Adding missing column '{column}' to table '{table}'")
-                    conn.execute(text(f"ALTER TABLE {table} ADD COLUMN {column} {sql_type}"))
+        table_columns = {}
+        for table, column, sql_type, default in expected_columns:
+            if table not in table_columns:
+                if table in inspector.get_table_names():
+                    table_columns[table] = {c["name"] for c in inspector.get_columns(table)}
+                else:
+                    table_columns[table] = set()
+            if table in table_columns and column not in table_columns[table]:
+                default_clause = f" DEFAULT {default}" if default is not None else ""
+                logger.info(f"Adding missing column '{column}' to table '{table}'")
+                conn.execute(text(f"ALTER TABLE {table} ADD COLUMN {column} {sql_type}{default_clause}"))
         conn.commit()
 
 
