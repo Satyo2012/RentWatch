@@ -27,7 +27,11 @@ class HomesScraper(BaseScraper):
             soup = self.fetch_page(url)
             properties = []
 
-            name_el = soup.select_one("h1.bukkenHead--title, h1.heading--b1")
+            name_el = soup.select_one(
+                "h1.bukkenHead--title, h1.heading--b1, "
+                "h1[class*='bukken'], h1[class*='Bukken'], "
+                ".mod-bukkenHead h1, .property-title h1, h1"
+            )
             name = name_el.get_text(strip=True) if name_el else "不明"
 
             price = None
@@ -113,19 +117,35 @@ class HomesScraper(BaseScraper):
             return []
 
     def scrape_search(self, url: str) -> list[ScrapedProperty]:
-        """Scrape HOME'S search results page(s)."""
+        """Scrape HOME'S search results page(s).
+
+        Handles both old and new HOME'S page layouts including
+        /chintai/list/ style URLs.
+        """
         properties = []
         current_url = url
 
         try:
             for page_num in range(1, 11):  # max 10 pages
+                logger.info(f"Scraping HOME'S search page {page_num}: {current_url}")
                 soup = self.fetch_page(current_url)
 
-                items = soup.select(".mod-bukkenDetail, .prg-cassetteItem, [data-bukken-id]")
+                # Try multiple selector patterns (old and new layouts)
+                items = soup.select(
+                    ".mod-bukkenDetail, .prg-cassetteItem, [data-bukken-id], "
+                    ".mod-mergedBukken, .mod-bukken, .cassetteitem"
+                )
                 if not items:
-                    items = soup.select(".bukkenList--item, .rental-list-item")
+                    items = soup.select(
+                        ".bukkenList--item, .rental-list-item, "
+                        "[class*='bukken'], [class*='Bukken'], "
+                        "article[class*='property'], .p-property-card"
+                    )
                 if not items:
+                    logger.warning(f"No property items found on page {page_num}")
                     break
+
+                logger.info(f"Found {len(items)} items on page {page_num}")
 
                 for item in items:
                     try:
@@ -136,7 +156,12 @@ class HomesScraper(BaseScraper):
                         logger.warning(f"Error parsing HOME'S search item: {e}")
                         continue
 
-                next_link = soup.select_one("a.next, .pagination a[rel='next'], .mod-pagination--next a")
+                # Try multiple pagination patterns
+                next_link = soup.select_one(
+                    "a.next, .pagination a[rel='next'], .mod-pagination--next a, "
+                    "a[class*='next'], .pager a[rel='next'], "
+                    "nav a[aria-label='次へ'], .paginate_button.next a"
+                )
                 if not next_link:
                     break
                 next_href = next_link.get("href")
@@ -151,32 +176,81 @@ class HomesScraper(BaseScraper):
 
     def _parse_search_item(self, item) -> ScrapedProperty | None:
         """Parse a single search result item."""
-        name_el = item.select_one(".bukkenTitle, .prg-bukkenTitle, h2 a, .bukkenName")
+        # Property name - try multiple selectors
+        name_el = item.select_one(
+            ".bukkenTitle, .prg-bukkenTitle, h2 a, .bukkenName, "
+            "[class*='bukkenTitle'], [class*='BukkenTitle'], "
+            ".cassetteitem_content-title, h3 a"
+        )
         name = name_el.get_text(strip=True) if name_el else "不明"
 
-        price_el = item.select_one(".bukkenPrice, .prg-bukkenPrice, .price")
+        # Price
+        price_el = item.select_one(
+            ".bukkenPrice, .prg-bukkenPrice, .price, "
+            "[class*='bukkenPrice'], [class*='Price'], "
+            ".cassetteitem_price--rent"
+        )
         if not price_el:
             return None
         price = parse_price(price_el.get_text(strip=True))
         if not price:
             return None
 
-        address_el = item.select_one(".bukkenAddress, .prg-bukkenAddress, .address")
+        # Address
+        address_el = item.select_one(
+            ".bukkenAddress, .prg-bukkenAddress, .address, "
+            "[class*='bukkenAddress'], [class*='Address'], "
+            ".cassetteitem_detail-col1"
+        )
         address = address_el.get_text(strip=True) if address_el else None
 
-        layout_el = item.select_one(".bukkenMadori, .prg-bukkenMadori, .layout")
+        # Layout
+        layout_el = item.select_one(
+            ".bukkenMadori, .prg-bukkenMadori, .layout, "
+            "[class*='bukkenMadori'], [class*='Madori'], "
+            ".cassetteitem_madori"
+        )
         layout = layout_el.get_text(strip=True) if layout_el else None
 
-        area_el = item.select_one(".bukkenMenseki, .prg-bukkenMenseki, .area")
+        # Area (floor space)
+        area_el = item.select_one(
+            ".bukkenMenseki, .prg-bukkenMenseki, .area, "
+            "[class*='bukkenMenseki'], [class*='Menseki'], "
+            ".cassetteitem_menseki"
+        )
         area = area_el.get_text(strip=True) if area_el else None
 
-        access_el = item.select_one(".bukkenAccess, .prg-bukkenAccess, .access")
+        # Access (station)
+        access_el = item.select_one(
+            ".bukkenAccess, .prg-bukkenAccess, .access, "
+            "[class*='bukkenAccess'], [class*='Access'], "
+            ".cassetteitem_detail-col2"
+        )
         access = access_el.get_text(strip=True) if access_el else None
 
-        age_el = item.select_one(".bukkenAge, .prg-bukkenAge")
+        # Building age
+        age_el = item.select_one(
+            ".bukkenAge, .prg-bukkenAge, "
+            "[class*='bukkenAge'], [class*='Age'], "
+            ".cassetteitem_detail-col3"
+        )
         age = age_el.get_text(strip=True) if age_el else None
 
-        detail_link = item.select_one("a[href*='/chintai/']")
+        # Detail link - try broader selectors
+        detail_link = item.select_one(
+            "a[href*='/chintai/'], a[href*='/detail/'], a[href*='/bukken/']"
+        )
+        if not detail_link:
+            # Fallback: first <a> with an absolute homes.co.jp URL
+            detail_link = item.select_one("a[href^='https://www.homes.co.jp']")
+        if not detail_link:
+            # Fallback: first <a> tag with href
+            for a_tag in item.select("a[href]"):
+                href = a_tag.get("href", "")
+                if href and not href.startswith("#") and not href.startswith("javascript:"):
+                    detail_link = a_tag
+                    break
+
         detail_url = urljoin(BASE_URL, detail_link["href"]) if detail_link and detail_link.get("href") else None
 
         return ScrapedProperty(

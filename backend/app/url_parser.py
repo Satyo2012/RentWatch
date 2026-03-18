@@ -120,22 +120,38 @@ def parse_suumo_url(url: str) -> list[str]:
 
 
 def parse_homes_url(url: str) -> list[str]:
-    """Extract search condition tags from a HOME'S URL."""
+    """Extract search condition tags from a HOME'S URL.
+
+    Handles both old and new URL formats:
+      Old: /chintai/tokyo/shibuya/
+      New: /chintai/tokyo/shibuya-city/list/
+           /chintai/list/
+           /chintai/kodate/tokyo/nishidai_09942-st/list/
+           /chintai/theme/12106/chiba/sakura-city/list/
+    """
     tags = []
     parsed = urlparse(url)
     params = parse_qs(parsed.query)
     path = parsed.path
 
     # Extract area from path segments
-    # HOME'S URLs often contain area info in the path like /chintai/tokyo/shibuya/
     path_parts = [p for p in path.split("/") if p]
+
+    # Skip non-area path segments
+    _skip_segments = {
+        "chintai", "list", "kodate", "mansion", "apartment",
+        "theme", "keyword", "ltag", "train-map",
+    }
 
     # Prefecture mapping from URL slug
     prefecture_slugs = {
         "tokyo": "東京都", "kanagawa": "神奈川県", "osaka": "大阪府",
         "saitama": "埼玉県", "chiba": "千葉県", "kyoto": "京都府",
         "hyogo": "兵庫県", "aichi": "愛知県", "fukuoka": "福岡県",
-        "hokkaido": "北海道",
+        "hokkaido": "北海道", "miyagi": "宮城県", "hiroshima": "広島県",
+        "nara": "奈良県", "shizuoka": "静岡県", "ibaraki": "茨城県",
+        "nagano": "長野県", "niigata": "新潟県", "gunma": "群馬県",
+        "tochigi": "栃木県", "okinawa": "沖縄県",
     }
 
     ward_slugs = {
@@ -151,10 +167,24 @@ def parse_homes_url(url: str) -> list[str]:
 
     for part in path_parts:
         part_lower = part.lower()
-        if part_lower in prefecture_slugs:
-            tags.append(prefecture_slugs[part_lower])
-        elif part_lower in ward_slugs:
-            tags.append(ward_slugs[part_lower])
+
+        # Skip known non-area segments and numeric IDs (theme/keyword IDs)
+        if part_lower in _skip_segments or part_lower.isdigit():
+            continue
+
+        # Handle new format: "shibuya-city" -> "shibuya"
+        city_slug = part_lower.removesuffix("-city")
+
+        # Handle station format: "nishidai_09942-st" -> extract station name
+        if part_lower.endswith("-st"):
+            station_name = part_lower.removesuffix("-st").split("_")[0]
+            tags.append(f"駅:{station_name}")
+            continue
+
+        if city_slug in prefecture_slugs:
+            tags.append(prefecture_slugs[city_slug])
+        elif city_slug in ward_slugs:
+            tags.append(ward_slugs[city_slug])
 
     # Price range from query params
     price_min = params.get("rent_low", params.get("priceLow", [None]))[0] if params.get("rent_low") or params.get("priceLow") else None

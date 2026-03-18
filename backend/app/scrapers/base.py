@@ -29,12 +29,25 @@ class ScrapedProperty:
 class BaseScraper(ABC):
     HEADERS = {
         "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",
+        "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8",
         "Accept-Language": "ja,en-US;q=0.9,en;q=0.8",
+        "Accept-Encoding": "gzip, deflate, br",
+        "Connection": "keep-alive",
+        "Upgrade-Insecure-Requests": "1",
+        "Sec-Fetch-Dest": "document",
+        "Sec-Fetch-Mode": "navigate",
+        "Sec-Fetch-Site": "none",
+        "Sec-Fetch-User": "?1",
+        "Cache-Control": "max-age=0",
     }
 
+    def __init__(self):
+        self._session = requests.Session()
+        self._session.headers.update(self.HEADERS)
+
     def fetch_page(self, url: str) -> BeautifulSoup:
-        time.sleep(random.uniform(1.0, 3.0))
-        response = requests.get(url, headers=self.HEADERS, timeout=30)
+        time.sleep(random.uniform(1.5, 3.5))
+        response = self._session.get(url, timeout=30)
         response.raise_for_status()
         response.encoding = response.apparent_encoding
         return BeautifulSoup(response.text, "lxml")
